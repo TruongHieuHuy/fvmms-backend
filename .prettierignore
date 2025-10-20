@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.vscode
+package-lock.json
+.prisma
+.env.local
+
+# Ignore generated Prisma client
+prisma/generated

@@ -1,0 +1,11 @@
+import { Request, Response } from 'express';
+import { AuthRequest } from '../../core/middlewares/auth.middleware';
+export declare const register: (req: Request, res: Response) => Promise<void>;
+export declare const login: (req: Request, res: Response) => Promise<void>;
+export declare const logout: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const refresh: (req: Request, res: Response) => Promise<void>;
+export declare const getMe: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const changePass: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const update: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const forgotPass: (req: Request, res: Response) => Promise<void>;
+export declare const resetPass: (req: Request, res: Response) => Promise<void>;

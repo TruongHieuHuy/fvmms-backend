@@ -1,0 +1,767 @@
+// FVMMS (Fishing Vessel Monitoring and Management System)
+// Prisma Schema for PostgreSQL + PostGIS
+// Generated: 2025-10-02
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  admin
+  government
+  fleet_owner
+  fisherman
+}
+
+enum VesselStatus {
+  active
+  inactive
+  maintenance
+  decommissioned
+}
+
+enum CertificateStatus {
+  valid
+  expired
+  suspended
+}
+
+enum TripStatus {
+  planned
+  approved
+  in_progress
+  completed
+  cancelled
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum SyncStatus {
+  synced
+  pending
+  conflict
+}
+
+enum DeviceStatus {
+  online
+  offline
+  error
+}
+
+enum ZoneType {
+  eez
+  territorial
+  restricted
+  fishing_ground
+  protected
+}
+
+enum ViolationType {
+  boundary_cross
+  restricted_zone
+  prohibited_area
+}
+
+enum Severity {
+  low
+  medium
+  high
+  critical
+}
+
+enum AlertType {
+  weather
+  storm
+  boundary_violation
+  vms_offline
+  logbook_missing
+  document_expiry
+}
+
+enum AlertSeverity {
+  info
+  warning
+  critical
+}
+
+enum DocumentStatus {
+  pending
+  approved
+  rejected
+  expired
+}
+
+enum RequestPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum RequestStatus {
+  pending
+  in_review
+  approved
+  rejected
+  cancelled
+}
+
+enum DeliveryStatus {
+  pending
+  sent
+  failed
+  read
+}
+
+enum Platform {
+  ios
+  android
+  web
+}
+
+enum Operation {
+  create
+  update
+  delete
+}
+
+enum QueueStatus {
+  pending
+  synced
+  conflict
+  failed
+}
+
+enum EventSeverity {
+  info
+  warning
+  error
+  critical
+}
+
+enum ComplianceStatus {
+  compliant
+  warning
+  non_compliant
+}
+
+// ============================================================
+// 1. CORE ENTITIES
+// ============================================================
+
+model User {
+  id                   String    @id @default(uuid()) @db.Uuid
+  username             String    @unique @db.VarChar(50)
+  passwordHash         String    @map("password_hash") @db.VarChar(255)
+  email                String?   @db.VarChar(100)
+  phone                String?   @db.VarChar(20)
+  role                 UserRole
+  isActive             Boolean   @default(true) @map("is_active")
+  lastLogin            DateTime? @map("last_login") @db.Timestamptz
+  refreshToken         String?   @unique @map("refresh_token") @db.VarChar(255)
+  resetPasswordToken   String?   @map("reset_password_token") @db.VarChar(255)
+  resetPasswordExpires DateTime? @map("reset_password_expires") @db.Timestamptz
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt            DateTime? @map("deleted_at") @db.Timestamptz
+
+  // Relations
+  ownedVessels         Vessel[]             @relation("VesselOwner")
+  submittedDocuments   Document[]           @relation("DocumentSubmitter")
+  reviewedDocuments    Document[]           @relation("DocumentReviewer")
+  acknowledgedAlerts   Alert[]              @relation("AlertAcknowledger")
+  auditLogs            AuditLog[]
+  deviceTokens         DeviceToken[]
+  notifications        Notification[]
+  offlineQueues        OfflineQueue[]
+  syncLogs             SyncLog[]
+  approvedTrips        Trip[]               @relation("TripApprover")
+  requestedApprovals   ApprovalRequest[]    @relation("ApprovalRequester")
+  assignedApprovals    ApprovalRequest[]    @relation("ApprovalAssignee")
+  decidedApprovals     ApprovalRequest[]    @relation("ApprovalDecider")
+  acknowledgedViolations BoundaryViolation[] @relation("ViolationAcknowledger")
+  generatedReports     ComplianceReport[]   @relation("ReportGenerator")
+  updatedSettings      SystemSettings[]     @relation("SettingUpdater")
+  createdFishingLogs   FishingLog[]         @relation("FishingLogCreator")
+
+  @@map("users")
+}
+
+model Vessel {
+  id                 String        @id @default(uuid()) @db.Uuid
+  vesselCode         String        @unique @map("vessel_code") @db.VarChar(20)
+  vesselName         String?       @map("vessel_name") @db.VarChar(100)
+  ownerId            String        @map("owner_id") @db.Uuid
+  vesselType         String?       @map("vessel_type") @db.VarChar(50)
+  lengthMeters       Decimal?      @map("length_meters") @db.Decimal(5, 2)
+  grossTonnage       Decimal?      @map("gross_tonnage") @db.Decimal(8, 2)
+  enginePowerHp      Int?          @map("engine_power_hp")
+  buildYear          Int?          @map("build_year")
+  registrationPort   String?       @map("registration_port") @db.VarChar(100)
+  imoNumber          String?       @map("imo_number") @db.VarChar(20)
+  vmsDeviceId        String?       @map("vms_device_id") @db.VarChar(50)
+  status             VesselStatus  @default(active)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt          DateTime?     @map("deleted_at") @db.Timestamptz
+
+  // Relations
+  owner              User                  @relation("VesselOwner", fields: [ownerId], references: [id])
+  trips              Trip[]
+  certificates       Certificate[]
+  vmsData            VMSData[]
+  alerts             Alert[]
+  boundaryViolations BoundaryViolation[]
+  documents          Document[]
+  offlineQueues      OfflineQueue[]
+  syncLogs           SyncLog[]
+  complianceReports  ComplianceReport[]
+
+  @@map("vessels")
+}
+
+model Certificate {
+  id                String            @id @default(uuid()) @db.Uuid
+  vesselId          String            @map("vessel_id") @db.Uuid
+  certificateType   String            @map("certificate_type") @db.VarChar(50)
+  certificateNumber String?           @map("certificate_number") @db.VarChar(50)
+  issueDate         DateTime?         @map("issue_date") @db.Date
+  expiryDate        DateTime?         @map("expiry_date") @db.Date
+  issuingAuthority  String?           @map("issuing_authority") @db.VarChar(100)
+  documentUrl       String?           @map("document_url") @db.Text
+  status            CertificateStatus @default(valid)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  vessel            Vessel            @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+
+  @@map("certificates")
+}
+
+model Crew {
+  id                   String    @id @default(uuid()) @db.Uuid
+  fullName             String    @map("full_name") @db.VarChar(100)
+  citizenId            String?   @unique @map("citizen_id") @db.VarChar(20)
+  dateOfBirth          DateTime? @map("date_of_birth") @db.Date
+  phone                String?   @db.VarChar(20)
+  address              String?   @db.Text
+  roleOnVessel         String?   @map("role_on_vessel") @db.VarChar(50)
+  certificationNumber  String?   @map("certification_number") @db.VarChar(50)
+  photoUrl             String?   @map("photo_url") @db.Text
+  idDocumentUrl        String?   @map("id_document_url") @db.Text
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  crewAssignments      CrewAssignment[]
+  crewCertificates     CrewCertificate[]
+
+  @@map("crew")
+}
+
+model CrewCertificate {
+  id                String            @id @default(uuid()) @db.Uuid
+  crewId            String            @map("crew_id") @db.Uuid
+  certificateType   String            @map("certificate_type") @db.VarChar(50)
+  certificateNumber String?           @map("certificate_number") @db.VarChar(50)
+  issueDate         DateTime?         @map("issue_date") @db.Date
+  expiryDate        DateTime?         @map("expiry_date") @db.Date
+  issuingAuthority  String?           @map("issuing_authority") @db.VarChar(100)
+  documentUrl       String?           @map("document_url") @db.Text
+  status            CertificateStatus @default(valid)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  crew              Crew              @relation(fields: [crewId], references: [id], onDelete: Cascade)
+
+  @@map("crew_certificates")
+}
+
+// ============================================================
+// 2. TRIP & LOGGING ENTITIES
+// ============================================================
+
+model Trip {
+  id                   String         @id @default(uuid()) @db.Uuid
+  vesselId             String         @map("vessel_id") @db.Uuid
+  tripCode             String?        @unique @map("trip_code") @db.VarChar(30)
+  departurePort        String?        @map("departure_port") @db.VarChar(100)
+  departureTime        DateTime       @map("departure_time") @db.Timestamptz
+  expectedReturnTime   DateTime?      @map("expected_return_time") @db.Timestamptz
+  actualReturnTime     DateTime?      @map("actual_return_time") @db.Timestamptz
+  tripStatus           TripStatus     @default(planned) @map("trip_status")
+  approvalStatus       ApprovalStatus @default(pending) @map("approval_status")
+  approvedBy           String?        @map("approved_by") @db.Uuid
+  approvalNotes        String?        @map("approval_notes") @db.Text
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt            DateTime?      @map("deleted_at") @db.Timestamptz
+
+  // Relations
+  vessel               Vessel               @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  approver             User?                @relation("TripApprover", fields: [approvedBy], references: [id])
+  fishingLogs          FishingLog[]
+  vmsData              VMSData[]
+  crewAssignments      CrewAssignment[]
+  boundaryViolations   BoundaryViolation[]
+  documents            Document[]
+  approvalRequests     ApprovalRequest[]
+
+  @@map("trips")
+}
+
+model CrewAssignment {
+  id          String    @id @default(uuid()) @db.Uuid
+  tripId      String    @map("trip_id") @db.Uuid
+  crewId      String    @map("crew_id") @db.Uuid
+  role        String?   @db.VarChar(50)
+  joinDate    DateTime  @map("join_date") @db.Date
+  leaveDate   DateTime? @map("leave_date") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  crew        Crew      @relation(fields: [crewId], references: [id])
+
+  @@unique([tripId, crewId])
+  @@map("crew_assignments")
+}
+
+model FishingLog {
+  id                   String      @id @default(uuid()) @db.Uuid
+  tripId               String      @map("trip_id") @db.Uuid
+  logTime              DateTime    @map("log_time") @db.Timestamptz
+  latitude             Decimal     @db.Decimal(10, 8)
+  longitude            Decimal     @db.Decimal(11, 8)
+  geom                 String?     @db.Text // PostGIS GEOMETRY(Point,4326) - stored as WKT
+  gpsAccuracyMeters    Decimal?    @map("gps_accuracy_meters") @db.Decimal(6, 2)
+  speciesCode          String?     @map("species_code") @db.VarChar(10)
+  catchWeightKg        Decimal     @map("catch_weight_kg") @db.Decimal(10, 2)
+  fishingMethod        String?     @map("fishing_method") @db.VarChar(50)
+  depthMeters          Int?        @map("depth_meters")
+  waterTemperatureC    Decimal?    @map("water_temperature_c") @db.Decimal(4, 1)
+  photoUrl             String?     @map("photo_url") @db.Text
+  notes                String?     @db.Text
+  syncStatus           SyncStatus  @default(pending) @map("sync_status")
+  clientTimestamp      DateTime?   @map("client_timestamp") @db.Timestamptz
+  serverTimestamp      DateTime    @default(now()) @map("server_timestamp") @db.Timestamptz
+  createdBy            String?     @map("created_by") @db.Uuid
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  trip                 Trip        @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  species              Species?    @relation(fields: [speciesCode], references: [code])
+  creator              User?       @relation("FishingLogCreator", fields: [createdBy], references: [id])
+
+  @@map("fishing_logs")
+}
+
+model Species {
+  code             String        @id @db.VarChar(10)
+  speciesName      String        @map("species_name") @db.VarChar(100)
+  scientificName   String?       @map("scientific_name") @db.VarChar(150)
+  category         String?       @db.VarChar(50)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  fishingLogs      FishingLog[]
+
+  @@map("species")
+}
+
+model VMSData {
+  id                 String       @id @default(uuid()) @db.Uuid
+  vesselId           String       @map("vessel_id") @db.Uuid
+  tripId             String?      @map("trip_id") @db.Uuid
+  timestamp          DateTime     @db.Timestamptz
+  latitude           Decimal      @db.Decimal(10, 8)
+  longitude          Decimal      @db.Decimal(11, 8)
+  geom               String?      @db.Text // PostGIS GEOMETRY(Point,4326) - stored as WKT
+  gpsAccuracyMeters  Decimal?     @map("gps_accuracy_meters") @db.Decimal(6, 2)
+  speedKnots         Decimal?     @map("speed_knots") @db.Decimal(5, 2)
+  headingDegrees     Int?         @map("heading_degrees")
+  signalQuality      Int?         @map("signal_quality")
+  deviceStatus       DeviceStatus @default(online) @map("device_status")
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  vessel             Vessel       @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  trip               Trip?        @relation(fields: [tripId], references: [id])
+
+  @@index([vesselId, timestamp])
+  @@map("vms_data")
+}
+
+// ============================================================
+// 3. GEOSPATIAL & COMPLIANCE ENTITIES
+// ============================================================
+
+model GeofenceZone {
+  id                   String                @id @default(uuid()) @db.Uuid
+  zoneName             String                @map("zone_name") @db.VarChar(100)
+  zoneType             ZoneType              @map("zone_type")
+  countryCode          String?               @map("country_code") @db.Char(2)
+  geom                 String                @db.Text // PostGIS GEOMETRY(Polygon,4326) - stored as WKT
+  regulations          String?               @db.Text
+  isActive             Boolean               @default(true) @map("is_active")
+  effectiveDate        DateTime?             @map("effective_date") @db.Date
+  expiryDate           DateTime?             @map("expiry_date") @db.Date
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  boundaryViolations   BoundaryViolation[]
+
+  @@map("geofence_zones")
+}
+
+model BoundaryViolation {
+  id                 String         @id @default(uuid()) @db.Uuid
+  vesselId           String         @map("vessel_id") @db.Uuid
+  tripId             String?        @map("trip_id") @db.Uuid
+  zoneId             String         @map("zone_id") @db.Uuid
+  violationTime      DateTime       @map("violation_time") @db.Timestamptz
+  latitude           Decimal?       @db.Decimal(10, 8)
+  longitude          Decimal?       @db.Decimal(11, 8)
+  geom               String?        @db.Text // PostGIS GEOMETRY(Point,4326) - stored as WKT
+  violationType      ViolationType  @map("violation_type")
+  severity           Severity       @default(medium)
+  alertSent          Boolean        @default(false) @map("alert_sent")
+  acknowledged       Boolean        @default(false)
+  acknowledgedBy     String?        @map("acknowledged_by") @db.Uuid
+  acknowledgedAt     DateTime?      @map("acknowledged_at") @db.Timestamptz
+  resolutionNotes    String?        @map("resolution_notes") @db.Text
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  vessel             Vessel         @relation(fields: [vesselId], references: [id])
+  trip               Trip?          @relation(fields: [tripId], references: [id])
+  zone               GeofenceZone   @relation(fields: [zoneId], references: [id])
+  acknowledger       User?          @relation("ViolationAcknowledger", fields: [acknowledgedBy], references: [id])
+
+  @@map("boundary_violations")
+}
+
+model ComplianceReport {
+  id                      String            @id @default(uuid()) @db.Uuid
+  vesselId                String            @map("vessel_id") @db.Uuid
+  reportPeriodStart       DateTime          @map("report_period_start") @db.Date
+  reportPeriodEnd         DateTime          @map("report_period_end") @db.Date
+  totalTrips              Int               @default(0) @map("total_trips")
+  totalViolations         Int               @default(0) @map("total_violations")
+  logbookComplianceRate   Decimal?          @map("logbook_compliance_rate") @db.Decimal(5, 2)
+  vmsUptimeRate           Decimal?          @map("vms_uptime_rate") @db.Decimal(5, 2)
+  boundaryComplianceRate  Decimal?          @map("boundary_compliance_rate") @db.Decimal(5, 2)
+  overallScore            Decimal?          @map("overall_score") @db.Decimal(5, 2)
+  status                  ComplianceStatus  @default(compliant)
+  generatedBy             String            @map("generated_by") @db.Uuid
+  generatedAt             DateTime          @default(now()) @map("generated_at") @db.Timestamptz
+  reportFileUrl           String?           @map("report_file_url") @db.Text
+
+  // Relations
+  vessel                  Vessel            @relation(fields: [vesselId], references: [id])
+  generator               User              @relation("ReportGenerator", fields: [generatedBy], references: [id])
+
+  @@map("compliance_reports")
+}
+
+// ============================================================
+// 4. DOCUMENT WORKFLOW & APPROVAL ENTITIES
+// ============================================================
+
+model Document {
+  id               String          @id @default(uuid()) @db.Uuid
+  vesselId         String          @map("vessel_id") @db.Uuid
+  tripId           String?         @map("trip_id") @db.Uuid
+  documentType     String          @map("document_type") @db.VarChar(50)
+  documentNumber   String?         @map("document_number") @db.VarChar(50)
+  fileUrl          String          @map("file_url") @db.Text
+  fileName         String?         @map("file_name") @db.VarChar(255)
+  fileSizeBytes    BigInt?         @map("file_size_bytes")
+  mimeType         String?         @map("mime_type") @db.VarChar(100)
+  submittedBy      String          @map("submitted_by") @db.Uuid
+  submittedAt      DateTime        @default(now()) @map("submitted_at") @db.Timestamptz
+  status           DocumentStatus  @default(pending)
+  reviewedBy       String?         @map("reviewed_by") @db.Uuid
+  reviewedAt       DateTime?       @map("reviewed_at") @db.Timestamptz
+  reviewNotes      String?         @map("review_notes") @db.Text
+  expiryDate       DateTime?       @map("expiry_date") @db.Date
+
+  // Relations
+  vessel           Vessel          @relation(fields: [vesselId], references: [id])
+  trip             Trip?           @relation(fields: [tripId], references: [id])
+  submitter        User            @relation("DocumentSubmitter", fields: [submittedBy], references: [id])
+  reviewer         User?           @relation("DocumentReviewer", fields: [reviewedBy], references: [id])
+  approvalRequests ApprovalRequest[]
+
+  @@map("documents")
+}
+
+model ApprovalRequest {
+  id             String          @id @default(uuid()) @db.Uuid
+  documentId     String?         @map("document_id") @db.Uuid
+  tripId         String?         @map("trip_id") @db.Uuid
+  requestType    String          @map("request_type") @db.VarChar(50)
+  requestedBy    String          @map("requested_by") @db.Uuid
+  requestTime    DateTime        @default(now()) @map("request_time") @db.Timestamptz
+  assignedTo     String?         @map("assigned_to") @db.Uuid
+  priority       RequestPriority @default(normal)
+  status         RequestStatus   @default(pending)
+  decisionTime   DateTime?       @map("decision_time") @db.Timestamptz
+  decisionBy     String?         @map("decision_by") @db.Uuid
+  decisionNotes  String?         @map("decision_notes") @db.Text
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  document       Document?       @relation(fields: [documentId], references: [id])
+  trip           Trip?           @relation(fields: [tripId], references: [id])
+  requester      User            @relation("ApprovalRequester", fields: [requestedBy], references: [id])
+  assignee       User?           @relation("ApprovalAssignee", fields: [assignedTo], references: [id])
+  decider        User?           @relation("ApprovalDecider", fields: [decisionBy], references: [id])
+
+  @@map("approval_requests")
+}
+
+// ============================================================
+// 5. ALERT & NOTIFICATION ENTITIES
+// ============================================================
+
+model Alert {
+  id               String         @id @default(uuid()) @db.Uuid
+  vesselId         String         @map("vessel_id") @db.Uuid
+  alertType        AlertType      @map("alert_type")
+  severity         AlertSeverity  @default(warning)
+  title            String         @db.VarChar(200)
+  message          String         @db.Text
+  latitude         Decimal?       @db.Decimal(10, 8)
+  longitude        Decimal?       @db.Decimal(11, 8)
+  alertTime        DateTime       @map("alert_time") @db.Timestamptz
+  expiryTime       DateTime?      @map("expiry_time") @db.Timestamptz
+  isAcknowledged   Boolean        @default(false) @map("is_acknowledged")
+  acknowledgedBy   String?        @map("acknowledged_by") @db.Uuid
+  acknowledgedAt   DateTime?      @map("acknowledged_at") @db.Timestamptz
+  actionTaken      String?        @map("action_taken") @db.Text
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  vessel           Vessel         @relation(fields: [vesselId], references: [id])
+  acknowledger     User?          @relation("AlertAcknowledger", fields: [acknowledgedBy], references: [id])
+  notifications    Notification[]
+
+  @@index([vesselId, alertTime])
+  @@map("alerts")
+}
+
+model Notification {
+  id              String         @id @default(uuid()) @db.Uuid
+  userId          String         @map("user_id") @db.Uuid
+  alertId         String?        @map("alert_id") @db.Uuid
+  notificationType String?       @map("notification_type") @db.VarChar(50)
+  title           String?        @db.VarChar(200)
+  body            String?        @db.Text
+  sentAt          DateTime       @default(now()) @map("sent_at") @db.Timestamptz
+  deliveryStatus  DeliveryStatus @default(pending) @map("delivery_status")
+  readAt          DateTime?      @map("read_at") @db.Timestamptz
+  deviceTokenId   String?        @map("device_token_id") @db.Uuid
+  platform        Platform?
+
+  // Relations
+  user            User           @relation(fields: [userId], references: [id])
+  alert           Alert?         @relation(fields: [alertId], references: [id])
+  deviceToken     DeviceToken?   @relation(fields: [deviceTokenId], references: [id])
+
+  @@map("notifications")
+}
+
+model DeviceToken {
+  id            String         @id @default(uuid()) @db.Uuid
+  userId        String         @map("user_id") @db.Uuid
+  deviceToken   String         @unique @map("device_token") @db.VarChar(255)
+  platform      Platform
+  isActive      Boolean        @default(true) @map("is_active")
+  lastUsed      DateTime       @default(now()) @map("last_used") @db.Timestamptz
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user          User           @relation(fields: [userId], references: [id])
+  notifications Notification[]
+
+  @@unique([userId, deviceToken])
+  @@map("device_tokens")
+}
+
+// ============================================================
+// 6. WEATHER & EXTERNAL DATA ENTITIES
+// ============================================================
+
+model WeatherData {
+  id                  String   @id @default(uuid()) @db.Uuid
+  latitude            Decimal  @db.Decimal(10, 8)
+  longitude           Decimal  @db.Decimal(11, 8)
+  geom                String?  @db.Text // PostGIS GEOMETRY(Point,4326) - stored as WKT
+  forecastTime        DateTime @map("forecast_time") @db.Timestamptz
+  temperatureC        Decimal? @map("temperature_c") @db.Decimal(4, 1)
+  windSpeedKmh        Decimal? @map("wind_speed_kmh") @db.Decimal(5, 2)
+  windDirectionDegrees Int?    @map("wind_direction_degrees")
+  waveHeightM         Decimal? @map("wave_height_m") @db.Decimal(4, 2)
+  precipitationMm     Decimal? @map("precipitation_mm") @db.Decimal(6, 2)
+  weatherCondition    String?  @map("weather_condition") @db.VarChar(50)
+  visibilityKm        Decimal? @map("visibility_km") @db.Decimal(5, 2)
+  dataSource          String?  @map("data_source") @db.VarChar(50)
+  fetchedAt           DateTime @default(now()) @map("fetched_at") @db.Timestamptz
+
+  @@index([forecastTime])
+  @@map("weather_data")
+}
+
+model StormTracking {
+  id                String   @id @default(uuid()) @db.Uuid
+  stormName         String?  @map("storm_name") @db.VarChar(50)
+  stormCategory     Int?     @map("storm_category")
+  centerLatitude    Decimal  @map("center_latitude") @db.Decimal(10, 8)
+  centerLongitude   Decimal  @map("center_longitude") @db.Decimal(11, 8)
+  geom              String?  @db.Text // PostGIS GEOMETRY(Point,4326) - stored as WKT
+  radiusKm          Decimal? @map("radius_km") @db.Decimal(6, 2)
+  maxWindSpeedKmh   Decimal? @map("max_wind_speed_kmh") @db.Decimal(6, 2)
+  forecastPath      String?  @map("forecast_path") @db.Text // PostGIS GEOMETRY(LineString,4326) - stored as WKT
+  trackingTime      DateTime @map("tracking_time") @db.Timestamptz
+  dataSource        String?  @map("data_source") @db.VarChar(50)
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("storm_tracking")
+}
+
+// ============================================================
+// 7. OFFLINE SYNC & DATA QUALITY ENTITIES
+// ============================================================
+
+model OfflineQueue {
+  id               String      @id @default(uuid()) @db.Uuid
+  userId           String      @map("user_id") @db.Uuid
+  vesselId         String      @map("vessel_id") @db.Uuid
+  entityType       String      @map("entity_type") @db.VarChar(50)
+  entityId         String?     @map("entity_id") @db.Uuid
+  operation        Operation
+  payload          Json        @db.JsonB
+  clientTimestamp  DateTime    @map("client_timestamp") @db.Timestamptz
+  retryCount       Int         @default(0) @map("retry_count")
+  syncStatus       QueueStatus @default(pending) @map("sync_status")
+  errorMessage     String?     @map("error_message") @db.Text
+  syncedAt         DateTime?   @map("synced_at") @db.Timestamptz
+  createdAt        DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user             User        @relation(fields: [userId], references: [id])
+  vessel           Vessel      @relation(fields: [vesselId], references: [id])
+
+  @@map("offline_queue")
+}
+
+model SyncLog {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  vesselId           String   @map("vessel_id") @db.Uuid
+  syncTime           DateTime @map("sync_time") @db.Timestamptz
+  recordsUploaded    Int      @default(0) @map("records_uploaded")
+  recordsDownloaded  Int      @default(0) @map("records_downloaded")
+  conflictsDetected  Int      @default(0) @map("conflicts_detected")
+  syncDurationMs     Int?     @map("sync_duration_ms")
+  deviceInfo         Json?    @map("device_info") @db.JsonB
+  appVersion         String?  @map("app_version") @db.VarChar(20)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user               User     @relation(fields: [userId], references: [id])
+  vessel             Vessel   @relation(fields: [vesselId], references: [id])
+
+  @@map("sync_logs")
+}
+
+// ============================================================
+// 8. SYSTEM ADMINISTRATION & AUDIT ENTITIES
+// ============================================================
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  action      String   @db.VarChar(50)
+  entityType  String   @map("entity_type") @db.VarChar(50)
+  entityId    String?  @map("entity_id") @db.Uuid
+  oldValue    Json?    @map("old_value") @db.JsonB
+  newValue    Json?    @map("new_value") @db.JsonB
+  ipAddress   String?  @map("ip_address") @db.Inet
+  userAgent   String?  @map("user_agent") @db.Text
+  timestamp   DateTime @default(now()) @db.Timestamptz
+
+  // Relations
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId, timestamp])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model SystemSettings {
+  id          String   @id @default(uuid()) @db.Uuid
+  settingKey  String   @unique @map("setting_key") @db.VarChar(100)
+  settingValue Json    @map("setting_value") @db.JsonB
+  description String?  @db.Text
+  updatedBy   String?  @map("updated_by") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  updater     User?    @relation("SettingUpdater", fields: [updatedBy], references: [id])
+
+  @@map("system_settings")
+}
+
+model EventLog {
+  id        String         @id @default(uuid()) @db.Uuid
+  eventType String         @map("event_type") @db.VarChar(50)
+  severity  EventSeverity  @default(info)
+  message   String         @db.Text
+  metadata  Json?          @db.JsonB
+  source    String?        @db.VarChar(100)
+  timestamp DateTime       @default(now()) @db.Timestamptz
+
+  @@index([timestamp])
+  @@index([eventType])
+  @@map("event_logs")
+}
+
+// ============================================================
+// NOTES:
+// ============================================================
+// 1. PostGIS geometry fields stored as TEXT (WKT format) due to Prisma limitation
+//    - Use ST_GeomFromText() and ST_AsText() for conversion
+//    - Requires raw queries: prisma.$queryRaw for spatial operations
+//
+// 2. Materialized Views (CatchStatistics, VesselActivity) not supported in Prisma
+//    - Create manually via SQL migration after prisma migrate
+//    - Query via prisma.$queryRawUnsafe()
+//
+// 3. Enable PostGIS extension before first migration:
+//    - CREATE EXTENSION IF NOT EXISTS postgis;
+//
+// 4. Check constraints not directly supported in Prisma schema
+//    - Add via custom SQL migration after prisma migrate dev
+//
+// 5. For production: Add indexes for geom fields manually:
+//    - CREATE INDEX idx_fishing_log_geom ON fishing_logs USING GIST(ST_GeomFromText(geom, 4326));
